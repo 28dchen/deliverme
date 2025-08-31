@@ -42,17 +42,10 @@ function loadContractAddresses() {
 
 async function getNextNonce(signerAddress) {
   try {
-    const currentNonce = await provider.getTransactionCount(signerAddress, 'latest');
+    // Use pending nonce to avoid conflicts with in-flight transactions
     const pendingNonce = await provider.getTransactionCount(signerAddress, 'pending');
-
-    // 基础nonce
-    const baseNonce = Math.max(currentNonce, pendingNonce);
-
-    // 添加基于时间戳的随机偏移（小范围）
-    const timestamp = Date.now();
-    const randomOffset = timestamp % 10; // 0-9的随机偏移
-
-    return baseNonce + randomOffset;
+    logger.info(`Using nonce for ${signerAddress}: ${pendingNonce}`);
+    return pendingNonce;
   } catch (error) {
     logger.error('Error getting nonce:', error);
     throw error;
@@ -76,7 +69,7 @@ function getDeliveryTrackingContract() {
 }
 
 
-async function executeWithNonceRetry(transactionFunction, signerAddress, maxRetries = 5) {
+async function executeWithNonceRetry(transactionFunction, signerAddress, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const nonce = await getNextNonce(signerAddress);
@@ -87,17 +80,17 @@ async function executeWithNonceRetry(transactionFunction, signerAddress, maxRetr
     } catch (error) {
       logger.error(`Transaction attempt ${attempt} failed:`, error.message);
 
-      // Check for specific errors that require longer delays
-      const isRateLimited = error.message.includes('in-flight transaction limit') ||
-        error.message.includes('nonce too low') ||
-        error.message.includes('replacement transaction underpriced');
+      // Check for specific errors that require retry
+      const shouldRetry = error.message.includes('nonce too low') ||
+        error.message.includes('replacement transaction underpriced') ||
+        error.message.includes('network error');
 
-      if (attempt === maxRetries) {
+      if (attempt === maxRetries || !shouldRetry) {
         throw error;
       }
 
-      // Longer wait for rate limiting issues
-      const waitTime = isRateLimited ? 3000 * attempt : 1000 * attempt;
+      // Short wait before retry to avoid overwhelming the network
+      const waitTime = 1000 * attempt; // 1s, 2s, 3s
       logger.info(`Waiting ${waitTime}ms before retry...`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
@@ -128,6 +121,22 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    // Validate Ethereum address
+    if (!ethers.isAddress(senderAddress)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid sender address format'
+      });
+    }
+
+    // Validate strings are not empty
+    if (mailId.trim().length === 0 || trackingNumber.trim().length === 0 || recipientId.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'MailId, trackingNumber, and recipientId cannot be empty strings'
+      });
+    }
+
     // Mail type mapping: convert string mailType to enum number
     const mailTypeMapping = {
       'document': 0,
@@ -146,15 +155,48 @@ router.post('/register', async (req, res) => {
 
     const mailRegistry = getMailRegistryContract();
 
+    // Validate and prepare guaranteed delivery time
+    let validGuaranteedDeliveryTime;
+    if (guaranteedDeliveryTime) {
+      validGuaranteedDeliveryTime = parseInt(guaranteedDeliveryTime);
+      // Ensure it's in the future
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (validGuaranteedDeliveryTime <= currentTime) {
+        return res.status(400).json({
+          success: false,
+          error: 'Guaranteed delivery time must be in the future'
+        });
+      }
+    } else {
+      // Default to 24 hours from now
+      validGuaranteedDeliveryTime = Math.floor(Date.now() / 1000) + 86400;
+    }
+
+    // Check if mailId already exists (to prevent duplicate error)
+    try {
+      const existingMail = await mailRegistry.mailExists(mailId);
+      if (existingMail) {
+        return res.status(409).json({
+          success: false,
+          error: 'Mail ID already exists. Please use a unique mail ID.'
+        });
+      }
+    } catch (error) {
+      logger.warn('Could not check mail existence:', error.message);
+      // Continue anyway as this might be a contract call issue
+    }
+
     // Prepare metadata in the correct format
     const mailMetadata = {
       weight: metadata?.weight || "0kg",
       size: metadata?.size || "Small",
-      priority: metadata?.priority || 0,
+      priority: Math.min(Math.max(parseInt(metadata?.priority || 0), 0), 2), // Ensure 0-2 range
       insurance: ethers.parseEther(metadata?.insurance || "0"),
       requiresSignature: metadata?.requiresSignature || false
     };
-    console.log("registering mail with metadata:", mailMetadata);
+    
+    logger.info(`Registering mail with ID: ${mailId}, tracking: ${trackingNumber}, delivery time: ${new Date(validGuaranteedDeliveryTime * 1000).toISOString()}`);
+    console.log("Mail metadata:", mailMetadata);
 
     // const contractAddresses = loadContractAddresses();
     // const MailRegistry_ = await ethers.getContractAt("MailRegistry", contractAddresses.mailRegistry);
@@ -167,16 +209,16 @@ router.post('/register', async (req, res) => {
         senderAddress,
         recipientId,
         mailTypeEnum,
-        guaranteedDeliveryTime || Math.floor(Date.now() / 1000) + 86400, // Default 24h
+        validGuaranteedDeliveryTime,
         requiresTimeProof || false,
         mailMetadata,
         {
-          gasLimit: 1000000,
-          gasPrice: ethers.parseUnits('20', 'gwei'),
+          gasLimit: 800000, // Increased to handle contract complexity
+          gasPrice: ethers.parseUnits('40', 'gwei'), // Increased for faster confirmation
           nonce: nonce
         }
       );
-    }, signer);
+    }, await signer.getAddress());
 
 
     // const tx6 = await executeWithNonceRetry(async (nonce) => {
@@ -198,8 +240,9 @@ router.post('/register', async (req, res) => {
     // }, user1);
 
     // await tx6.wait();
-    await tx.wait();
-    logger.info(`Mail registered successfully: ${mailId}`);
+    const receipt = await tx.wait();
+    logger.info(`Mail registered successfully: ${mailId}, transaction: ${receipt.transactionHash}`);
+    
     res.json({
       success: true,
       message: 'Mail registered successfully',
@@ -207,16 +250,42 @@ router.post('/register', async (req, res) => {
         mailId,
         trackingNumber,
         status: 'registered',
+        transactionHash: receipt.transactionHash,
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed.toString(),
         registeredAt: new Date().toISOString()
       }
     });
 
 
   } catch (error) {
-    console.error('Mail registration error:', error);
-    res.status(500).json({
+    logger.error('Mail registration error:', error);
+    
+    // Provide more specific error messages based on error type
+    let errorMessage = 'Failed to register mail';
+    let statusCode = 500;
+    
+    if (error.message.includes('nonce too low')) {
+      errorMessage = 'Transaction nonce conflict. Please try again.';
+      statusCode = 409;
+    } else if (error.message.includes('insufficient funds')) {
+      errorMessage = 'Insufficient funds for transaction';
+      statusCode = 400;
+    } else if (error.message.includes('execution reverted')) {
+      errorMessage = 'Blockchain transaction failed - possibly due to contract validation';
+      statusCode = 400;
+    } else if (error.message.includes('network')) {
+      errorMessage = 'Network error. Please check connection and try again.';
+      statusCode = 503;
+    } else if (error.message.includes('timeout')) {
+      errorMessage = 'Transaction timed out. Please try again.';
+      statusCode = 408;
+    }
+    
+    res.status(statusCode).json({
       success: false,
-      error: error.message
+      error: errorMessage,
+      details: error.message
     });
   }
 });

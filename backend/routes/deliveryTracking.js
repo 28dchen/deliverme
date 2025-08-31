@@ -216,47 +216,75 @@ router.post('/register-worker', async (req, res) => {
             });
         }
 
-        // const deliveryTracking = getDeliveryTrackingContract(userSigner);
-        // const signerAddress = await userSigner.getAddress();
-        const nonce = getNextNonce(signer);
-        const contractAddresses = loadContractAddresses();
-        const deliveryTracking_ = await ethers.getContractAt("DeliveryTracking", contractAddresses.deliveryTracking);
-        const tx = await deliveryTracking_.connect(signer).registerWorker(
-            workerAddress,
-            name,
-            workerType,
-            {
-                gasLimit: 300000,
-                gasPrice: ethers.parseUnits("20", "gwei"),
-                nonce: nonce
+        // Get the delivery tracking contract
+        const deliveryTrackingContract = getDeliveryTrackingContract();
+        const signerAddress = await signer.getAddress();
+        
+        // Execute worker registration with nonce retry
+        const tx = await executeWithNonceRetry(async (nonce) => {
+            return await deliveryTrackingContract.connect(signer).registerWorker(
+                workerAddress,
+                name,
+                workerType,
+                {
+                    gasLimit: 400000,
+                    gasPrice: ethers.parseUnits("30", "gwei"),
+                    nonce: nonce
+                }
+            );
+        }, signerAddress);
+        
+        const receipt = await tx.wait();
+        logger.info(`Worker registered successfully: ${workerAddress}, transaction: ${receipt.transactionHash}`);
+        
+        res.json({
+            success: true,
+            message: 'Worker registered successfully',
+            data: {
+                workerAddress,
+                name,
+                workerType,
+                transactionHash: receipt.transactionHash,
+                blockNumber: receipt.blockNumber,
+                gasUsed: receipt.gasUsed.toString(),
+                registeredAt: new Date().toISOString()
             }
-            , signer);
-        await tx.wait();
-        // const tx = await executeWithNonceRetry(async (nonce) => {
-        //     return await contracts.deliveryTracking.connect(userSigner).registerWorker(
-        //         workerAddress,
-        //         name,
-        //         workerType,
-        //         {
-        //             gasLimit: 300000,
-        //             gasPrice: ethers.parseUnits('20', 'gwei'),
-        //             nonce: nonce
-        //         }
-        //     );
-        // }, signerAddress);
-
-        // logger.info(`Worker registration transaction sent: ${tx.hash}`);
-
-        // Wait for transaction confirmation
-        // logger.info(`Worker registration confirmed in block: ${receipt.blockNumber}`);
-
+        });
 
     } catch (error) {
         logger.error('Error registering worker:', error);
-        res.status(500).json({
+        
+        // Provide more specific error messages
+        let errorMessage = 'Failed to register worker';
+        let statusCode = 500;
+        
+        if (error.message.includes('Worker already registered')) {
+            errorMessage = 'Worker is already registered';
+            statusCode = 409;
+        } else if (error.message.includes('Invalid worker address')) {
+            errorMessage = 'Invalid worker address provided';
+            statusCode = 400;
+        } else if (error.message.includes('Name cannot be empty')) {
+            errorMessage = 'Worker name cannot be empty';
+            statusCode = 400;
+        } else if (error.message.includes('Role cannot be empty')) {
+            errorMessage = 'Worker role cannot be empty';
+            statusCode = 400;
+        } else if (error.message.includes('OwnableUnauthorizedAccount')) {
+            errorMessage = 'Only contract owner can register workers';
+            statusCode = 403;
+        } else if (error.message.includes('insufficient funds')) {
+            errorMessage = 'Insufficient funds for transaction';
+            statusCode = 400;
+        } else if (error.message.includes('no matching fragment')) {
+            errorMessage = 'Contract method signature mismatch';
+            statusCode = 500;
+        }
+        
+        res.status(statusCode).json({
             success: false,
-            error: 'Failed to register worker, maybe already registered'
-            // details: error.message
+            error: errorMessage,
+            details: error.message
         });
     }
 });

@@ -46,10 +46,9 @@ function SignUpPage() {
     try {
       // First check if user is already registered
       try {
-        const checkResponse = await fetch(`http://localhost:3001/api/user/check/${account}`)
-        const checkData = await checkResponse.json()
+        const checkResponse = await userAPI.getUser(account)
         
-        if (checkData.success && checkData.data.isRegistered) {
+        if (checkResponse.success) {
           const errorMessage = 'This wallet address is already registered'
           const failureMessage = `❌ Registration Failed!\n\nError: ${errorMessage}\n\n• This wallet is already associated with an account\n• Try signing in instead\n• Use a different wallet address`
           

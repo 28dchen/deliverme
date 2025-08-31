@@ -202,20 +202,21 @@ function RecipientDashboard() {
   // Search for package by tracking number
   const searchPackage = async () => {
     if (!searchQuery.trim()) {
-      alert('Please enter a tracking number to search')
+      alert('Please enter a mailID to search')
       return
     }
 
     setIsSearching(true)
-    setError('')
+    setError('')	
     try {
       const response = await mailAPI.searchByTrackingNumber(searchQuery.trim())
       if (response.success && response.data) {
+		// alert(response.body)
         setSearchResults(response.data)
         alert(`Package found! Tracking Number: ${response.data.trackingNumber}`)
       } else {
         setSearchResults(null)
-        alert('Package not found with this tracking number')
+        alert('Package not found with this mailID')
       }
     } catch (error) {
       console.error('Search error:', error)
@@ -328,7 +329,7 @@ function RecipientDashboard() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Enter tracking number (e.g., TN1234567890)"
+              placeholder="Enter mail ID"
               className="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-green-500"
               onKeyPress={(e) => e.key === 'Enter' && searchPackage()}
             />

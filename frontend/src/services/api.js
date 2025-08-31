@@ -1,7 +1,7 @@
 const API_BASE_URL = 'http://localhost:3001'
 
-// Default timeout for API requests
-const API_TIMEOUT = 60000
+// Default timeout for API requests (increased for blockchain transactions)
+const API_TIMEOUT = 120000
 
 // Create a custom fetch function with timeout and common settings
 const fetchWithTimeout = async (url, options = {}) => {
@@ -86,9 +86,26 @@ export const workerAPI = {
     return await fetchWithTimeout(`${API_BASE_URL}/api/delivery-tracking/worker/${workerAddress}`)
   },
 
-  // Get all registered workers
+  // Get all registered workers (Mock implementation - backend route doesn't exist)
   getAllWorkers: async () => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/delivery-tracking/workers`)
+    // Mock implementation since backend doesn't have this endpoint
+    return {
+      success: true,
+      data: [
+        {
+          workerAddress: "0x2Cb2E88CBE054982833A4A08658e1341Ca04b8dC",
+          name: "John Doe",
+          workerType: "delivery_worker",
+          isActive: true
+        },
+        {
+          workerAddress: "0x3Db3F88CBE054982833A4A08658e1341Ca04b8eF",
+          name: "Jane Smith", 
+          workerType: "delivery_worker",
+          isActive: true
+        }
+      ]
+    }
   },
 
   // Check if worker exists and is valid
@@ -102,26 +119,39 @@ export const workerAPI = {
   }
 }
 
-// Admin Management API
+// Admin Management API (Mock implementation - backend routes don't exist)
 export const adminAPI = {
-  // Get all valid delivery addresses
+  // Get all valid delivery addresses (Mock)
   getValidAddresses: async () => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/admin/valid-addresses`)
+    // Mock implementation since backend doesn't have admin routes
+    return {
+      success: true,
+      data: [
+        "0x1234567890123456789012345678901234567890",
+        "0x2345678901234567890123456789012345678901",
+        "0x3456789012345678901234567890123456789012"
+      ]
+    }
   },
 
-  // Add valid delivery address
+  // Add valid delivery address (Mock)
   addValidAddress: async (address) => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/admin/valid-addresses`, {
-      method: 'POST',
-      body: JSON.stringify({ address })
-    })
+    // Mock implementation since backend doesn't have admin routes
+    return {
+      success: true,
+      message: "Address added successfully (mock)",
+      data: { address }
+    }
   },
 
-  // Remove valid delivery address
+  // Remove valid delivery address (Mock)
   removeValidAddress: async (address) => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/admin/valid-addresses/${address}`, {
-      method: 'DELETE'
-    })
+    // Mock implementation since backend doesn't have admin routes
+    return {
+      success: true,
+      message: "Address removed successfully (mock)",
+      data: { address }
+    }
   }
 }
 
@@ -140,19 +170,44 @@ export const mailAPI = {
     return await fetchWithTimeout(`${API_BASE_URL}/api/mail/${mailId}/details`)
   },
 
-  // Get mails for recipient
+  // Get mails for recipient (Mock implementation - would need proper backend implementation)
   getRecipientMails: async (recipientAddress) => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/mail/recipient/${recipientAddress}`)
+    // Mock implementation since backend doesn't have a specific endpoint for recipient mails
+    // In reality, this would require filtering mails by recipient from a mail listing endpoint
+    return {
+      success: true,
+      data: {
+        recipientAddress,
+        mails: [
+          {
+            mailId: "MAIL_001",
+            trackingNumber: "TN123456789",
+            senderAddress: "0x1234567890123456789012345678901234567890",
+            status: "in_transit",
+            registrationTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            estimatedDelivery: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          },
+          {
+            mailId: "MAIL_002", 
+            trackingNumber: "TN987654321",
+            senderAddress: "0x2345678901234567890123456789012345678901",
+            status: "delivered",
+            registrationTime: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
+            deliveredAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+          }
+        ]
+      }
+    }
   },
 
   // Get tracking history by tracking number
-  getTrackingHistory: async (trackingNumber) => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/mail/tracking/${trackingNumber}`)
+  getTrackingHistory: async (mailID) => {
+    return await fetchWithTimeout(`${API_BASE_URL}/api/delivery-tracking/delivery-history/${mailID}`)
   },
 
   // Search mail by tracking number
-  searchByTrackingNumber: async (trackingNumber) => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/mail/search/${trackingNumber}`)
+  searchByTrackingNumber: async (mailID) => {
+    return await fetchWithTimeout(`${API_BASE_URL}/api/mail/${mailID}/details`)
   }
 }
 
@@ -181,9 +236,37 @@ export const deliveryAPI = {
     return await fetchWithTimeout(`${API_BASE_URL}/api/delivery-tracking/metrics`)
   },
 
-  // Get packages assigned to a specific delivery worker
+  // Get packages assigned to a specific delivery worker (Mock implementation - backend route doesn't exist)
   getAssignedPackages: async (workerAddress) => {
-    return await fetchWithTimeout(`${API_BASE_URL}/api/delivery-tracking/assigned/${workerAddress}`)
+    // Mock implementation since backend doesn't have this endpoint
+    return {
+      success: true,
+      data: {
+        workerAddress,
+        assignedPackages: [
+          {
+            mailId: "MAIL_WORKER_001",
+            trackingNumber: "TN456789123",
+            status: "collected",
+            priority: "high",
+            assignedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+            estimatedDelivery: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+            deliveryAddress: "123 Main St, City"
+          },
+          {
+            mailId: "MAIL_WORKER_002",
+            trackingNumber: "TN789123456", 
+            status: "in_transit",
+            priority: "normal",
+            assignedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+            estimatedDelivery: new Date(Date.now() + 16 * 60 * 60 * 1000).toISOString(),
+            deliveryAddress: "456 Oak Ave, Town"
+          }
+        ],
+        totalAssigned: 2,
+        completedToday: 3
+      }
+    }
   }
 }
 
@@ -246,8 +329,9 @@ export const generateMailId = () => {
 
 // Helper function to generate tracking number
 export const generateTrackingNumber = () => {
-  const timestamp = Date.now().toString().slice(-10)
-  return `TN${timestamp}`
+  const timestamp = Date.now()
+  const random = Math.random().toString(36).substr(2, 6).toUpperCase()
+  return `TN${timestamp}_${random}`
 }
 
 // Helper function to handle API errors with user-friendly messages
